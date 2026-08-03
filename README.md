@@ -95,8 +95,10 @@ report live progress (MB received / total).
 ## Check for updates
 
 The header has a manual **Check for updates** button. It queries this repository's GitHub
-Releases; when a newer tag exists it downloads the latest exe (portable preferred) to the
-Downloads folder. No background polling, no auto-install.
+Releases; when a newer tag exists, one click downloads the update and applies it: the
+installed (NSIS) build runs the new installer silently and relaunches the app when done;
+the portable build saves the new versioned exe next to the current one and launches it.
+No background polling — updates only happen when the button is pressed.
 
 Pushing a `v*` tag triggers `.github/workflows/release.yml`, which builds both exes on
 `windows-latest` and attaches them to the GitHub release — that's what the button consumes.

@@ -147,6 +147,7 @@ export interface DriverPickApi {
   getLogFilePath(): Promise<string>
   revealLogFile(): Promise<void>
   checkForUpdates(): Promise<UpdateCheckResult>
-  downloadUpdate(url: string): Promise<{ success: boolean; path?: string; error?: string }>
+  /** Downloads the update, installs it silently, and relaunches the app. */
+  installUpdate(url: string, latestVersion: string): Promise<{ success: boolean; error?: string }>
   openExternal(url: string): Promise<void>
 }

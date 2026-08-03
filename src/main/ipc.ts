@@ -6,7 +6,7 @@ import { runUninstall } from './install/uninstall'
 import { sendTestPage } from './verify/testPage'
 import { getHostInfo } from './hostInfo'
 import { getLogFilePath } from './logger'
-import { checkForUpdates, downloadUpdate } from './updates'
+import { checkForUpdates, installUpdate } from './updates'
 import type { DiscoveredPrinter, InstallRequest, UninstallRequest } from '@shared/types'
 
 /**
@@ -39,7 +39,9 @@ export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void
   ipcMain.handle('verify:testPage', (_e, printerName: string) => sendTestPage(printerName))
 
   ipcMain.handle('updates:check', () => checkForUpdates())
-  ipcMain.handle('updates:download', (_e, url: string) => downloadUpdate(url))
+  ipcMain.handle('updates:install', (_e, url: string, latestVersion: string) =>
+    installUpdate(url, latestVersion)
+  )
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
     return Promise.resolve()

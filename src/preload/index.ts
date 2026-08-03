@@ -30,7 +30,8 @@ const api: DriverPickApi = {
   getLogFilePath: () => ipcRenderer.invoke('log:path'),
   revealLogFile: () => ipcRenderer.invoke('log:reveal'),
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
-  downloadUpdate: (url: string) => ipcRenderer.invoke('updates:download', url),
+  installUpdate: (url: string, latestVersion: string) =>
+    ipcRenderer.invoke('updates:install', url, latestVersion),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
 }
 

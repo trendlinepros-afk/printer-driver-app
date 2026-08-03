@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { pipeline } from 'stream/promises'
 import { Readable } from 'stream'
+import { spawn } from 'child_process'
 import { logInfo, logErr, logOk } from './logger'
 import type { UpdateCheckResult } from '@shared/types'
 
@@ -55,9 +56,12 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     const release = (await res.json()) as GitHubRelease
     const latestVersion = release.tag_name
     const updateAvailable = isNewer(latestVersion, currentVersion)
-    // Prefer the portable exe (runs in place), fall back to the installer.
+    // Portable builds update with the portable exe; installed builds with the
+    // NSIS installer (which can run silently and relaunch the app).
+    const isPortable = !!process.env.PORTABLE_EXECUTABLE_DIR
+    const preferred = isPortable ? /portable.*\.exe$/i : /setup.*\.exe$/i
     const asset =
-      release.assets.find((a) => /portable.*\.exe$/i.test(a.name)) ??
+      release.assets.find((a) => preferred.test(a.name)) ??
       release.assets.find((a) => /\.exe$/i.test(a.name))
     logInfo(
       updateAvailable
@@ -78,25 +82,48 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   }
 }
 
-/** Download the release asset into the user's Downloads folder. */
-export async function downloadUpdate(
-  url: string
-): Promise<{ success: boolean; path?: string; error?: string }> {
+async function downloadTo(url: string, dest: string): Promise<void> {
+  logInfo(`Downloading update from ${url}`)
+  const res = await fetch(url, { headers: { 'User-Agent': 'DriverPick' }, redirect: 'follow' })
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  await pipeline(Readable.fromWeb(res.body as never), fs.createWriteStream(dest))
+  logOk(`Update downloaded to ${dest}`)
+}
+
+/**
+ * Download the update and apply it automatically:
+ * - Installed (NSIS) build: run the new installer silently with the NSIS
+ *   `--force-run` flag so the app relaunches when the install finishes,
+ *   then quit this instance.
+ * - Portable build: save the new exe next to the current one (versioned
+ *   name), launch it, then quit this instance.
+ */
+export async function installUpdate(
+  url: string,
+  latestVersion: string
+): Promise<{ success: boolean; error?: string }> {
   try {
-    const fileName = decodeURIComponent(url.split('/').pop() ?? 'DriverPick.exe').replace(
-      /[^\w.-]/g,
-      '_'
-    )
-    const dest = path.join(app.getPath('downloads'), fileName)
-    logInfo(`Downloading update from ${url}`)
-    const res = await fetch(url, { headers: { 'User-Agent': 'DriverPick' }, redirect: 'follow' })
-    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-    await pipeline(Readable.fromWeb(res.body as never), fs.createWriteStream(dest))
-    logOk(`Update downloaded to ${dest}`)
-    return { success: true, path: dest }
+    const portableDir = process.env.PORTABLE_EXECUTABLE_DIR
+    if (portableDir) {
+      const version = latestVersion.replace(/^v/i, '')
+      const dest = path.join(portableDir, `DriverPick-Portable-${version}.exe`)
+      await downloadTo(url, dest)
+      logOk('Launching the new version — this window will close.')
+      spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
+    } else {
+      const dir = path.join(app.getPath('temp'), 'driverpick-update')
+      fs.mkdirSync(dir, { recursive: true })
+      const dest = path.join(dir, 'DriverPick-Setup.exe')
+      await downloadTo(url, dest)
+      logOk('Running the installer — the app will restart when it finishes.')
+      spawn(dest, ['/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref()
+    }
+    // Give the spawned process a moment to start before this instance exits.
+    setTimeout(() => app.quit(), 800)
+    return { success: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    logErr(`Update download failed: ${message}`)
+    logErr(`Update failed: ${message}`)
     return { success: false, error: message }
   }
 }

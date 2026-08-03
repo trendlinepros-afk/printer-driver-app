@@ -56,6 +56,8 @@ export interface HostInfo {
   windowsVersion: string
   windowsBuild: string
   appVersion: string
+  /** true/false on Windows; null when it could not be determined (e.g. dev on non-Windows) */
+  isElevated: boolean | null
 }
 
 export type InstallStepId =
@@ -143,6 +145,7 @@ export interface DriverPickApi {
   sendTestPage(printerName: string): Promise<TestPageResult>
   onLog(cb: (e: LogEntry) => void): () => void
   getLogFilePath(): Promise<string>
+  revealLogFile(): Promise<void>
   checkForUpdates(): Promise<UpdateCheckResult>
   downloadUpdate(url: string): Promise<{ success: boolean; path?: string; error?: string }>
   openExternal(url: string): Promise<void>

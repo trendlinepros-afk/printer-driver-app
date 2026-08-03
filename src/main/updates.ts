@@ -45,7 +45,8 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   try {
     logInfo(`Checking for updates (current version ${currentVersion})…`)
     const res = await fetch(RELEASES_API, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DriverPick' }
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DriverPick' },
+      signal: AbortSignal.timeout(15_000)
     })
     if (res.status === 404) {
       return { currentVersion, updateAvailable: false, error: 'No releases published yet.' }

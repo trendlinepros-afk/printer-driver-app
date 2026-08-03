@@ -28,6 +28,7 @@ const api: DriverPickApi = {
   sendTestPage: (printerName: string) => ipcRenderer.invoke('verify:testPage', printerName),
   onLog: (cb: (e: LogEntry) => void) => subscribe('log', cb),
   getLogFilePath: () => ipcRenderer.invoke('log:path'),
+  revealLogFile: () => ipcRenderer.invoke('log:reveal'),
   checkForUpdates: () => ipcRenderer.invoke('updates:check'),
   downloadUpdate: (url: string) => ipcRenderer.invoke('updates:download', url),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)

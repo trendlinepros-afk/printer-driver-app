@@ -65,6 +65,14 @@ export default function App(): JSX.Element {
         </div>
       </header>
 
+      {host?.isElevated === false && (
+        <div className="border-b border-amber-800 bg-amber-950/60 px-5 py-2 text-sm text-amber-300">
+          ⚠ Not running as Administrator — driver installation will fail. Close this window and
+          launch DriverPick from its installed shortcut or the portable exe so the UAC prompt
+          appears.
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
         <main className="min-w-0 flex-1 overflow-y-auto p-5">
           {screen === 'discover' && (

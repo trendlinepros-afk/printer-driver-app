@@ -63,7 +63,10 @@ PSWindowsUpdate, yielding `.cab` files on `download.windowsupdate.com`.
 ### 3 · Install
 
 Every command and its full output streams to the always-visible log pane and to a log file
-(next to the exe for the portable build, else `%LOCALAPPDATA%\DriverPick\logs`).
+(next to the exe for the portable build, else `%LOCALAPPDATA%\DriverPick\logs`). The pane has
+Copy (whole log to clipboard) and Open folder buttons for pasting diagnostics into tickets.
+If the app is somehow running without elevation (e.g. `npm run dev`), a banner warns that
+driver installation will fail before anything is attempted.
 
 1. Download the `.cab`, check size against catalog metadata.
 2. `expand.exe -F:* driver.cab <dest>`.
@@ -76,6 +79,10 @@ Every command and its full output streams to the always-visible log pane and to 
    `IP_<addr>`) + `Add-Printer` for network printers, or reuse of the existing `USB00x` port
    for USB. Already-staged drivers, existing ports and printer-name collisions are handled
    idempotently (name collisions get a numeric suffix).
+
+Each candidate also links straight to its page on the Microsoft Update Catalog
+("view in catalog ↗") so the pick can be verified independently, and driver downloads
+report live progress (MB received / total).
 
 ### 4 · Verify
 

@@ -112,17 +112,31 @@ export default function SelectDriver({
                         {c.pdl && <span>{c.pdl}</span>}
                         <span className="text-slate-500">{c.products}</span>
                       </div>
-                      <p
-                        className={`mt-1 text-xs ${
-                          c.isWindowsDefault
-                            ? 'text-amber-400'
-                            : i === 0
-                              ? 'text-emerald-400'
-                              : 'text-slate-400'
-                        }`}
-                      >
-                        {c.reasons.join(' · ')}
-                      </p>
+                      <div className="mt-1 flex items-baseline justify-between gap-3">
+                        <p
+                          className={`text-xs ${
+                            c.isWindowsDefault
+                              ? 'text-amber-400'
+                              : i === 0
+                                ? 'text-emerald-400'
+                                : 'text-slate-400'
+                          }`}
+                        >
+                          {c.reasons.join(' · ')}
+                        </p>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            void window.driverpick.openExternal(
+                              `https://www.catalog.update.microsoft.com/ScopedViewInline.aspx?updateid=${c.updateId}`
+                            )
+                          }}
+                          className="shrink-0 text-xs text-slate-500 underline hover:text-sky-400"
+                          title="Open this update on the Microsoft Update Catalog"
+                        >
+                          view in catalog ↗
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </label>

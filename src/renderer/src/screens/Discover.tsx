@@ -92,11 +92,8 @@ export default function Discover({
 
       <ul className="space-y-2">
         {printers.map((p) => (
-          <li key={p.id}>
-            <button
-              onClick={() => onSelect(p)}
-              className="w-full rounded border border-slate-800 bg-slate-900 p-4 text-left hover:border-sky-600"
-            >
+          <li key={p.id} className="rounded border border-slate-800 bg-slate-900 hover:border-sky-600">
+            <button onClick={() => onSelect(p)} className="w-full p-4 text-left">
               <div className="flex items-baseline justify-between">
                 <span className="font-medium">{p.model}</span>
                 <span className="text-xs text-slate-500">{p.ip ?? 'USB'}</span>
@@ -113,6 +110,18 @@ export default function Discover({
                 )}
               </div>
             </button>
+            {p.detail.length > 0 && (
+              <details className="border-t border-slate-800 px-4 py-2 text-xs text-slate-500">
+                <summary className="cursor-pointer select-none hover:text-slate-300">
+                  Discovery details
+                </summary>
+                <ul className="mt-1 space-y-0.5 font-mono text-[11px]">
+                  {p.detail.map((d, i) => (
+                    <li key={i} className="break-all">{d}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </li>
         ))}
       </ul>

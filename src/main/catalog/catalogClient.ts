@@ -119,7 +119,8 @@ export async function searchCatalog(query: string): Promise<CatalogCandidate[]> 
   if (cached) return cached
   const results = await enqueue(async () => {
     const res = await fetch(searchUrl(query), {
-      headers: { 'User-Agent': USER_AGENT }
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(30_000)
     })
     if (!res.ok) {
       throw new Error(`Catalog search failed: HTTP ${res.status} for ${searchUrl(query)}`)
@@ -158,7 +159,8 @@ export async function getDownloadUrls(updateId: string): Promise<string[]> {
         'User-Agent': USER_AGENT,
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body
+      body,
+      signal: AbortSignal.timeout(30_000)
     })
     if (!res.ok) {
       throw new Error(`DownloadDialog failed: HTTP ${res.status} for update ${updateId}`)

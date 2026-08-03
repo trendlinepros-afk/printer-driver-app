@@ -2,8 +2,6 @@ import { BrowserWindow, app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as fsp from 'fs/promises'
-import { pipeline } from 'stream/promises'
-import { Readable } from 'stream'
 import { runExe, runPowerShell, runPowerShellJson } from '../exec'
 import { getDownloadUrls } from '../catalog/catalogClient'
 import { parseInf, matchDeviceToInf, type InfMatch, type ParsedInf } from './infParser'
@@ -28,17 +26,40 @@ function psQuote(s: string): string {
   return `'${s.replace(/'/g, "''")}'`
 }
 
+function formatMB(bytes: number): string {
+  return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+}
+
 async function downloadCab(
   url: string,
   destDir: string,
-  expectedBytes: number
+  expectedBytes: number,
+  onProgress?: (received: number, total: number) => void
 ): Promise<{ path: string; bytes: number }> {
   const fileName = decodeURIComponent(url.split('/').pop() ?? 'driver.cab').replace(/[^\w.-]/g, '_')
   const dest = path.join(destDir, fileName)
   logInfo(`Downloading ${url}`)
   const res = await fetch(url)
   if (!res.ok || !res.body) throw new Error(`Download failed: HTTP ${res.status} for ${url}`)
-  await pipeline(Readable.fromWeb(res.body as never), fs.createWriteStream(dest))
+  const total = Number(res.headers.get('content-length')) || expectedBytes || 0
+  const reader = res.body.getReader()
+  const out = fs.createWriteStream(dest)
+  let received = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      received += value.byteLength
+      if (!out.write(Buffer.from(value))) {
+        await new Promise<void>((resolve) => out.once('drain', resolve))
+      }
+      onProgress?.(received, total)
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      out.end((err?: Error | null) => (err ? reject(err) : resolve()))
+    })
+  }
   const bytes = (await fsp.stat(dest)).size
   logInfo(`Downloaded ${fileName} — ${bytes.toLocaleString()} bytes`)
   if (expectedBytes > 0) {
@@ -83,7 +104,20 @@ export async function runInstall(win: BrowserWindow, req: InstallRequest): Promi
     step(win, 'download', 'running', 'Resolving download URL from the catalog…')
     const urls = await getDownloadUrls(req.candidate.updateId)
     if (!urls.length) throw new Error('The catalog returned no download links for this update.')
-    const cab = await downloadCab(urls[0], workDir, req.candidate.sizeBytes)
+    // Throttle progress updates so the IPC channel isn't flooded on fast links.
+    let lastProgressAt = 0
+    const cab = await downloadCab(urls[0], workDir, req.candidate.sizeBytes, (received, total) => {
+      const now = Date.now()
+      if (now - lastProgressAt < 400 && received !== total) return
+      lastProgressAt = now
+      const pct = total > 0 ? ` (${Math.round((received / total) * 100)}%)` : ''
+      step(
+        win,
+        'download',
+        'running',
+        `Downloading… ${formatMB(received)}${total > 0 ? ` / ${formatMB(total)}` : ''}${pct}`
+      )
+    })
     step(win, 'download', 'ok', `Downloaded ${path.basename(cab.path)} (${cab.bytes.toLocaleString()} bytes)`)
 
     /* 2 — extract */

@@ -16,6 +16,10 @@ import type { DiscoveredPrinter, InstallRequest, UninstallRequest } from '@share
 export function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('host:info', () => getHostInfo())
   ipcMain.handle('log:path', () => getLogFilePath())
+  ipcMain.handle('log:reveal', () => {
+    const p = getLogFilePath()
+    if (p) shell.showItemInFolder(p)
+  })
 
   ipcMain.handle('discovery:start', async () => {
     const win = getWindow()

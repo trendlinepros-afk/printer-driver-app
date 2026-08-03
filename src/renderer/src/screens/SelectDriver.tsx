@@ -137,6 +137,17 @@ export default function SelectDriver({
                           view in catalog ↗
                         </button>
                       </div>
+                      {selectedId === c.updateId && (
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            onConfirm(c)
+                          }}
+                          className="mt-3 rounded bg-sky-600 px-5 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
+                        >
+                          Select and continue →
+                        </button>
+                      )}
                     </div>
                   </div>
                 </label>

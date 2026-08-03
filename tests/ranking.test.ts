@@ -126,6 +126,25 @@ describe('rankCandidates', () => {
     expect(ranked).toHaveLength(0)
   })
 
+  it('collapses same-package rows listed under different catalog GUIDs', () => {
+    const a = candidate({
+      updateId: 'guid-a',
+      title: 'HP - Printer - 32.1.2001.8207',
+      version: '',
+      sizeText: '13.3 MB',
+      products: 'Windows 10, version 1903 and later, Servicing Drivers'
+    })
+    const b = candidate({
+      updateId: 'guid-b',
+      title: 'HP - Printer - 32.1.2001.8207',
+      version: '',
+      sizeText: '13.3 MB',
+      products: 'Windows 10 and later drivers'
+    })
+    const ranked = rankCandidates([a, b], ctx)
+    expect(ranked).toHaveLength(1)
+  })
+
   it('deduplicates candidates by update GUID across merged searches', () => {
     const a = candidate({ updateId: 'same', title: 'HP LaserJet Pro M404dn Driver' })
     const b = candidate({ updateId: 'same', title: 'HP LaserJet Pro M404dn Driver' })

@@ -222,5 +222,14 @@ export function rankCandidates(
       parseCatalogDate(b.lastUpdated) - parseCatalogDate(a.lastUpdated)
     )
   })
-  return scored
+  // The catalog lists the same package under several GUIDs (one per product
+  // grouping). Collapse rows with identical title/version/size, keeping the
+  // best-ranked one, so the picker isn't a wall of duplicates.
+  const seenDisplay = new Set<string>()
+  return scored.filter((c) => {
+    const key = `${c.title}|${c.version}|${c.sizeText}`.toLowerCase()
+    if (seenDisplay.has(key)) return false
+    seenDisplay.add(key)
+    return true
+  })
 }

@@ -14,6 +14,8 @@ export default function Verify({
   const [testing, setTesting] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [removed, setRemoved] = useState<{ success: boolean; error?: string } | null>(null)
+  // Offered once, right after a successful install.
+  const [showTestPrompt, setShowTestPrompt] = useState(result.success)
 
   async function sendTest(): Promise<void> {
     if (!result.printerName) return
@@ -40,6 +42,35 @@ export default function Verify({
   const ok = result.success && !removed
   return (
     <div className="mx-auto max-w-3xl">
+      {showTestPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="w-[400px] rounded-lg border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <p className="text-lg font-semibold">Send a test print</p>
+            <p className="mt-2 text-sm text-slate-400">
+              <span className="text-slate-200">{result.printerName}</span> was installed
+              successfully. Send a Windows test page now to confirm it prints?
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={() => setShowTestPrompt(false)}
+                className="rounded border border-slate-700 px-4 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+              >
+                No
+              </button>
+              <button
+                autoFocus
+                onClick={() => {
+                  setShowTestPrompt(false)
+                  void sendTest()
+                }}
+                className="rounded bg-sky-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-sky-500"
+              >
+                Yes, send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <h2 className="mb-4 text-xl font-semibold">Verify</h2>
 
       <div

@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dist": "electron-vite build && electron-builder --win nsis portable",
+    "dist": "electron-vite build && electron-builder --win nsis portable --publish never",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

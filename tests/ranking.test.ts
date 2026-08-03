@@ -66,8 +66,31 @@ describe('rankCandidates', () => {
   it('penalizes series/universal drivers by 20', () => {
     const universal = candidate({ updateId: 'b', title: 'HP Universal Printing PCL 6' })
     const ranked = rankCandidates([universal], ctx)
-    expect(ranked[0].score).toBe(-20)
+    // −20 generic, +10 "Drivers (Printers)" classification
+    expect(ranked[0].score).toBe(-10)
     expect(ranked[0].reasons.join(' ')).toContain('generic')
+  })
+
+  it('ranks scanner/imaging packages far below print drivers regardless of version', () => {
+    // Real case: "HP Image Driver Update" (v63.x) outranked the actual
+    // print driver (v32.x) purely on the newer-version tiebreak.
+    const scanner = candidate({
+      updateId: 'img',
+      title: 'HP Image Driver Update',
+      version: '63.8.7102.0',
+      lastUpdated: '6/1/2023'
+    })
+    const printDriver = candidate({
+      updateId: 'prn',
+      title: 'HP - Printer',
+      version: '32.1.2001.8207',
+      lastUpdated: '5/9/2020'
+    })
+    const ranked = rankCandidates([scanner, printDriver], ctx)
+    expect(ranked[0].updateId).toBe('prn')
+    expect(ranked.find((c) => c.updateId === 'img')?.reasons.join(' ')).toContain(
+      'not a print driver'
+    )
   })
 
   it('gives +100 for a hardware ID match in catalog metadata', () => {

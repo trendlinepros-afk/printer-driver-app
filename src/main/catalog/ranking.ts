@@ -30,6 +30,9 @@ export interface RankingContext {
 
 const GENERIC_WORDS = /\b(series|universal|class driver|generic)\b/i
 const IPP_CLASS = /microsoft ipp class driver/i
+// This is a PRINT driver tool — scanner/imaging/fax bundles (e.g. "HP Image
+// Driver Update") pass catalog searches but are the wrong thing to install.
+const SCAN_WORDS = /\b(scan(?:ner)?|imag(?:e|ing)|fax|ocr|twain|wia)\b/i
 
 /** Best-effort PDL detection from the driver title (PCL6/PCL5/PS/XPS). */
 export function detectPdl(title: string): string | undefined {
@@ -136,6 +139,16 @@ export function scoreCandidate(
   if (GENERIC_WORDS.test(candidate.title)) {
     score -= 20
     reasons.push('generic series/universal driver — ranked below model-specific')
+  }
+
+  if (SCAN_WORDS.test(candidate.title)) {
+    score -= 60
+    reasons.push('scanner/imaging/fax package — not a print driver')
+  }
+
+  if (/printer/i.test(candidate.classification)) {
+    score += 10
+    reasons.push('classified as a printer driver')
   }
 
   if (reasons.length === 0) {

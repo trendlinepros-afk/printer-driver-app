@@ -21,7 +21,7 @@ function step(
   status: 'running' | 'ok' | 'warn' | 'fail',
   message: string
 ): void {
-  win.webContents.send('install:step', { step: stepId, status, message })
+  if (!win.isDestroyed()) win.webContents.send('install:step', { step: stepId, status, message })
 }
 
 function psQuote(s: string): string {

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   rankCandidates,
   extractModelTokens,
+  detectPdl,
   type RankingContext
 } from '../src/main/catalog/ranking'
 import type { CatalogCandidate } from '../src/shared/types'
@@ -31,6 +32,21 @@ describe('extractModelTokens', () => {
   it('finds digit-bearing model tokens', () => {
     expect(extractModelTokens('HP LaserJet Pro M404dn')).toEqual(['M404dn'])
     expect(extractModelTokens('Brother MFC-L2750DW series')).toEqual(['MFC-L2750DW'])
+  })
+})
+
+describe('detectPdl', () => {
+  it('detects PDLs from driver titles', () => {
+    expect(detectPdl('HP LaserJet Pro M404-M405 PCL-6 (V4) Printer Driver')).toBe('PCL6')
+    expect(detectPdl('Xerox GPD PS V6.212.5.0')).toBe('PS')
+    expect(detectPdl('Some PostScript and PCL 6 driver')).toBe('PCL6/PS')
+    expect(detectPdl('Plain driver title')).toBeUndefined()
+  })
+
+  it('is attached to ranked candidates', () => {
+    const c = candidate({ updateId: 'a', title: 'HP LaserJet Pro M404dn PCL-6 Driver' })
+    const ranked = rankCandidates([c], ctx)
+    expect(ranked[0].pdl).toBe('PCL6')
   })
 })
 

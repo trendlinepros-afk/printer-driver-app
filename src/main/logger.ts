@@ -41,7 +41,7 @@ export function log(level: LogEntry['level'], text: string): void {
   const entry: LogEntry = { ts: new Date().toISOString(), level, text }
   stream?.write(`${entry.ts} [${level.toUpperCase()}] ${text}\n`)
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('log', entry)
+    if (!win.isDestroyed()) win.webContents.send('log', entry)
   }
 }
 

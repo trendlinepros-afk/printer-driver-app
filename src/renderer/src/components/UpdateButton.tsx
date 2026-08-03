@@ -50,10 +50,12 @@ export default function UpdateButton(): JSX.Element {
       {phase === 'result' && result && (
         <span className="text-xs">
           {error ? (
-            <span className="text-amber-400">{error}</span>
+            <span className="inline-block max-w-[220px] truncate align-middle text-amber-400" title={error}>
+              {error}
+            </span>
           ) : result.updateAvailable ? (
             <button onClick={() => void download()} className="text-sky-400 underline">
-              {result.latestVersion} available — download
+              {result.latestVersion} available — {result.downloadUrl ? 'download' : 'view release'}
             </button>
           ) : (
             <span className="text-emerald-400">Up to date</span>

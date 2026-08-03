@@ -18,14 +18,24 @@ export default function SelectDriver({
   async function search(query?: string): Promise<void> {
     setLoading(true)
     setResult(null)
-    const r = query
-      ? await window.driverpick.searchCatalogManual(query)
-      : await window.driverpick.searchCatalog(printer)
-    setResult(r)
-    // Preselect the top pick — the user confirms or overrides, never silent.
-    const top = r.candidates.find((c) => !c.isWindowsDefault) ?? r.candidates[0]
-    setSelectedId(top?.updateId ?? null)
-    setLoading(false)
+    try {
+      const r = query
+        ? await window.driverpick.searchCatalogManual(query)
+        : await window.driverpick.searchCatalog(printer)
+      setResult(r)
+      // Preselect the top pick — the user confirms or overrides, never silent.
+      const top = r.candidates.find((c) => !c.isWindowsDefault) ?? r.candidates[0]
+      setSelectedId(top?.updateId ?? null)
+    } catch (err) {
+      setResult({
+        candidates: [],
+        queriesTried: [],
+        catalogUrl: `https://www.catalog.update.microsoft.com/Search.aspx?q=${encodeURIComponent(query ?? printer.model)}`,
+        error: `Search failed unexpectedly: ${err instanceof Error ? err.message : String(err)}`
+      })
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {

@@ -30,6 +30,16 @@ export interface RankingContext {
 const GENERIC_WORDS = /\b(series|universal|class driver|generic)\b/i
 const IPP_CLASS = /microsoft ipp class driver/i
 
+/** Best-effort PDL detection from the driver title (PCL6/PCL5/PS/XPS). */
+export function detectPdl(title: string): string | undefined {
+  const found: string[] = []
+  if (/pcl[\s-]?6|pcl6/i.test(title)) found.push('PCL6')
+  if (/pcl[\s-]?5/i.test(title)) found.push('PCL5')
+  if (/postscript|\bps\b/i.test(title)) found.push('PS')
+  if (/\bxps\b/i.test(title)) found.push('XPS')
+  return found.length ? found.join('/') : undefined
+}
+
 /**
  * Extract model tokens worth matching exactly: alphanumeric tokens that
  * contain at least one digit ("M404dn", "MFC-L2750DW", "ET-2760").
@@ -173,7 +183,14 @@ export function rankCandidates(
     const osOk = osMatches(c, ctx.windowsMajor)
     if (!isDefaultRow && (!archOk || !osOk)) continue
     const { score, reasons, isWindowsDefault } = scoreCandidate(c, ctx)
-    scored.push({ ...c, score, reasons, isWindowsDefault, archFiltered: false })
+    scored.push({
+      ...c,
+      score,
+      reasons,
+      isWindowsDefault,
+      archFiltered: false,
+      pdl: detectPdl(c.title)
+    })
   }
 
   // +20 newer version/date tiebreak within equal-score groups.

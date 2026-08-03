@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseInf, matchDeviceToInf } from '../src/main/install/infParser'
+import { parseInf, matchDeviceToInf, rankInfMatches } from '../src/main/install/infParser'
 
 const SAMPLE_INF = `
 ; HP LaserJet Pro sample INF
@@ -44,6 +44,76 @@ describe('parseInf', () => {
 
   it('ignores comment lines', () => {
     expect(inf.models.some((m) => m.description.includes('sample INF'))).toBe(false)
+  })
+})
+
+// Mirrors the real HP LaserJet M232-M237 package: a REST stub INF, the
+// actual v4 print driver INF, and a scanner INF all list the device.
+const STUB_INF = `
+[Version]
+Signature="$Windows NT$"
+Class=Printer
+Provider=%HP%
+DriverVer=10/07/2020,1.0.0.0
+[Manufacturer]
+%HP%=HP,NTamd64
+[HP.NTamd64]
+"HP LaserJet MFP M232-M237(REST)" = REST_SECTION, HPRestStubDevice
+[Strings]
+HP="HP"
+`
+const DRIVER_INF = `
+[Version]
+Signature="$Windows NT$"
+Class=Printer
+Provider=%HP%
+DriverVer=10/07/2020,32.1.2001.8207
+[Manufacturer]
+%HP%=HP,NTamd64
+[HP.NTamd64]
+"HP LaserJet MFP M232-M237 PCLmS" = PCLMS_SECTION, USBPRINT\\HPHP_LaserJet_MFPBEEF
+[Strings]
+HP="HP"
+`
+const SCANNER_INF = `
+[Version]
+Signature="$Windows NT$"
+Class=Image
+Provider=%HP%
+DriverVer=10/07/2020,1.0.0.0
+[Manufacturer]
+%HP%=HP,NTamd64
+[HP.NTamd64]
+"HP LaserJet MFP M232-M237 Scan" = SCAN_SECTION, HPScanDevice
+[Strings]
+HP="HP"
+`
+
+describe('rankInfMatches', () => {
+  const infs = [
+    parseInf(STUB_INF, 'HPRestStub.INF'),
+    parseInf(DRIVER_INF, 'hpypclms32_v4.inf'),
+    parseInf(SCANNER_INF, 'HPeSCLScan.INF')
+  ]
+
+  it('parses the driver class', () => {
+    expect(infs[0].driverClass).toBe('Printer')
+    expect(infs[2].driverClass).toBe('Image')
+  })
+
+  it('ranks the real print driver INF above stub and scanner INFs', () => {
+    const matches = rankInfMatches(infs, [], 'HP LaserJet MFP M232-M237')
+    expect(matches.length).toBe(3)
+    expect(matches[0].inf.path).toBe('hpypclms32_v4.inf')
+    expect(matches[1].inf.path).toBe('HPRestStub.INF')
+    expect(matches[2].inf.path).toBe('HPeSCLScan.INF')
+  })
+
+  it('keeps all matches as fallbacks so a failed Add-PrinterDriver can retry', () => {
+    const matches = rankInfMatches(infs, [], 'HP LaserJet MFP M232-M237')
+    expect(matches.map((m) => m.match.model.description)).toContain(
+      'HP LaserJet MFP M232-M237(REST)'
+    )
   })
 })
 

@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fsp from 'fs/promises'
 import { runExe, runPowerShell, runPowerShellJson } from '../exec'
 import { getDownloadUrls } from '../catalog/catalogClient'
-import { parseInf, matchDeviceToInf, type InfMatch, type ParsedInf } from './infParser'
+import { parseInf, rankInfMatches, type ParsedInf } from './infParser'
 import { logInfo, logWarn, logErr, logOk } from '../logger'
 import type {
   InstallRequest,
@@ -132,35 +132,35 @@ export async function runInstall(win: BrowserWindow, req: InstallRequest): Promi
 
     /* 3 — INF verification (the differentiator) */
     step(win, 'inf-verify', 'running', 'Verifying the INF actually lists this device…')
-    let match: InfMatch | null = null
-    let matchedInf: ParsedInf | null = null
+    const parsedInfs: ParsedInf[] = []
     const allModels: string[] = []
     for (const infPath of infFiles) {
       const parsed = parseInf(await fsp.readFile(infPath, 'latin1'), infPath)
+      parsedInfs.push(parsed)
       allModels.push(...parsed.models.map((m) => m.description))
-      const m = matchDeviceToInf(parsed, req.printer.hardwareIds, req.printer.model)
-      if (m && !match) {
-        match = m
-        matchedInf = parsed
-      }
     }
+    // Vendor packages bundle stub/scanner INFs that also list the device;
+    // rank so real printer-class driver INFs are tried first.
+    const matches = rankInfMatches(parsedInfs, req.printer.hardwareIds, req.printer.model)
+    const best = matches[0] ?? null
     const verification: InfVerification = {
-      verified: !!match,
-      matchedBy: match?.matchedBy,
-      matchedValue: match?.matchedValue,
-      infModelName: match?.model.description,
-      infPath: matchedInf?.path,
+      verified: !!best,
+      matchedBy: best?.match.matchedBy,
+      matchedValue: best?.match.matchedValue,
+      infModelName: best?.match.model.description,
+      infPath: best?.inf.path,
       allModels: [...new Set(allModels)].slice(0, 50)
     }
     result.infVerification = verification
-    if (match && matchedInf) {
+    if (best) {
       step(
         win,
         'inf-verify',
         'ok',
-        match.matchedBy === 'hardware-id'
-          ? `Verified: hardware ID ${match.matchedValue} listed in ${path.basename(matchedInf.path)}`
-          : `Verified: model "${match.matchedValue}" listed in ${path.basename(matchedInf.path)}`
+        (best.match.matchedBy === 'hardware-id'
+          ? `Verified: hardware ID ${best.match.matchedValue} listed in ${path.basename(best.inf.path)}`
+          : `Verified: model "${best.match.matchedValue}" listed in ${path.basename(best.inf.path)}`) +
+          (matches.length > 1 ? ` (+${matches.length - 1} fallback INF(s))` : '')
       )
     } else {
       logWarn('INF verification FAILED — this driver package does not list your device.')
@@ -175,28 +175,56 @@ export async function runInstall(win: BrowserWindow, req: InstallRequest): Promi
         result.error = 'inf-mismatch'
         return result
       }
+      throw new Error(
+        'No INF in this package lists the device, so there is no driver name to install with.'
+      )
     }
-    const infToInstall = matchedInf?.path ?? infFiles[0]
-    const driverDisplayName = match?.model.description
 
-    /* 4 — stage + install with pnputil */
-    step(win, 'pnputil', 'running', 'Staging driver with pnputil…')
-    const pnp = await runExe('pnputil.exe', ['/add-driver', infToInstall, '/install'])
-    if (pnp.code !== 0) throw new Error(`pnputil failed with exit code ${pnp.code}`)
-    const publishedName = parsePnputilPublishedName(pnp.stdout)
-    result.publishedInfName = publishedName
-    step(win, 'pnputil', 'ok', `Driver staged${publishedName ? ` as ${publishedName}` : ''}`)
+    /* 4+5 — stage with pnputil and register the printer driver. Stub INFs
+       stage fine but are rejected by Add-PrinterDriver, so try each matched
+       INF in ranked order until one registers as a real print driver. */
+    let driverDisplayName: string | undefined
+    let installedInf: ParsedInf | undefined
+    const attemptErrors: string[] = []
+    for (const candidate of matches) {
+      const base = path.basename(candidate.inf.path)
+      const name = candidate.match.model.description
+      step(win, 'pnputil', 'running', `Staging ${base} with pnputil…`)
+      const pnp = await runExe('pnputil.exe', ['/add-driver', candidate.inf.path, '/install'])
+      if (pnp.code !== 0) {
+        attemptErrors.push(`${base}: pnputil exit code ${pnp.code}`)
+        logWarn(`pnputil failed for ${base} — trying the next matched INF`)
+        continue
+      }
+      const publishedName = parsePnputilPublishedName(pnp.stdout)
+      step(win, 'pnputil', 'ok', `Driver staged${publishedName ? ` as ${publishedName}` : ''}`)
 
-    /* 5 — Add-PrinterDriver + port + printer */
-    if (!driverDisplayName) {
-      throw new Error('Could not determine the driver display name from the INF.')
+      step(win, 'add-driver', 'running', `Add-PrinterDriver "${name}"…`)
+      const addDriver = await runPowerShell(
+        `if (-not (Get-PrinterDriver -Name ${psQuote(name)} -ErrorAction SilentlyContinue)) { ` +
+          `Add-PrinterDriver -Name ${psQuote(name)} } else { 'Driver already installed' }`
+      )
+      if (addDriver.code === 0) {
+        driverDisplayName = name
+        installedInf = candidate.inf
+        result.publishedInfName = publishedName
+        break
+      }
+      attemptErrors.push(`${base}: "${name}" was not accepted as a printer driver`)
+      logWarn(
+        `"${name}" from ${base} could not be registered as a printer driver ` +
+          `(likely a stub/companion INF) — trying the next matched INF`
+      )
+      // Clean up the staged-but-unusable package so rollback stays accurate.
+      if (publishedName) {
+        await runExe('pnputil.exe', ['/delete-driver', publishedName, '/uninstall', '/force'])
+      }
     }
-    step(win, 'add-driver', 'running', `Add-PrinterDriver "${driverDisplayName}"…`)
-    const addDriver = await runPowerShell(
-      `if (-not (Get-PrinterDriver -Name ${psQuote(driverDisplayName)} -ErrorAction SilentlyContinue)) { ` +
-        `Add-PrinterDriver -Name ${psQuote(driverDisplayName)} } else { 'Driver already installed' }`
-    )
-    if (addDriver.code !== 0) throw new Error('Add-PrinterDriver failed — see log above.')
+    if (!driverDisplayName || !installedInf) {
+      throw new Error(
+        `None of the matched INFs could be registered as a printer driver: ${attemptErrors.join('; ')}`
+      )
+    }
     result.driverName = driverDisplayName
     step(win, 'add-driver', 'ok', `Printer driver "${driverDisplayName}" installed`)
 
@@ -242,7 +270,7 @@ export async function runInstall(win: BrowserWindow, req: InstallRequest): Promi
     )
     if (addPrinter.code !== 0) throw new Error('Add-Printer failed — see log above.')
     result.printerName = printerName
-    result.driverVersion = matchedInf?.driverVersion
+    result.driverVersion = installedInf.driverVersion
     step(win, 'add-printer', 'ok', `Printer "${printerName}" created on ${portName}`)
 
     logOk(`Install complete: "${printerName}" using "${driverDisplayName}"`)

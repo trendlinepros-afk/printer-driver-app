@@ -1,6 +1,6 @@
 {
   "name": "driverpick",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Finds the correct printer driver better than Windows' built-in Add Printer flow, installs it, and sends a test page.",
   "main": "out/main/index.js",
   "author": "DriverPick",

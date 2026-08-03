@@ -17,6 +17,8 @@ export interface ParsedInf {
   path: string
   driverVersion?: string
   provider?: string
+  /** [Version] Class= value, e.g. "Printer", "Image" (scanners) */
+  driverClass?: string
   models: InfModelEntry[]
 }
 
@@ -86,6 +88,7 @@ export function parseInf(content: string, infPath = ''): ParsedInf {
   const version = byName.get('version')
   let driverVersion: string | undefined
   let provider: string | undefined
+  let driverClass: string | undefined
   if (version) {
     for (const line of version.lines) {
       const eq = line.indexOf('=')
@@ -94,6 +97,7 @@ export function parseInf(content: string, infPath = ''): ParsedInf {
       const value = resolveStrings(stripQuotes(line.slice(eq + 1)), strings)
       if (key === 'driverver') driverVersion = value.split(',').pop()?.trim()
       if (key === 'provider') provider = value
+      if (key === 'class') driverClass = value
     }
   }
 
@@ -136,7 +140,7 @@ export function parseInf(content: string, infPath = ''): ParsedInf {
     }
   }
 
-  return { path: infPath, driverVersion, provider, models }
+  return { path: infPath, driverVersion, provider, driverClass, models }
 }
 
 function normalizeId(id: string): string {
@@ -192,4 +196,38 @@ export function matchDeviceToInf(
     }
   }
   return null
+}
+
+export interface RankedInfMatch {
+  inf: ParsedInf
+  match: InfMatch
+  priority: number
+}
+
+/**
+ * Match the device against every INF in the package and rank the matches by
+ * how likely each INF is to be the actual spooler print driver. Vendor
+ * packages bundle stub INFs (e.g. HPRestStub.INF) and scanner INFs whose
+ * [Models] also list the device but which Add-PrinterDriver rejects — real
+ * printer-class driver INFs must be tried first, with the rest as fallbacks.
+ */
+export function rankInfMatches(
+  infs: ParsedInf[],
+  hardwareIds: string[],
+  modelString: string
+): RankedInfMatch[] {
+  const out: RankedInfMatch[] = []
+  for (const inf of infs) {
+    const match = matchDeviceToInf(inf, hardwareIds, modelString)
+    if (!match) continue
+    let priority = match.matchedBy === 'hardware-id' ? 200 : 0
+    const cls = (inf.driverClass ?? '').toLowerCase()
+    if (cls === 'printer') priority += 100
+    else if (cls) priority -= 100 // Image (scanner), USBDevice stubs, …
+    const base = inf.path.split(/[\\/]/).pop()?.toLowerCase() ?? ''
+    if (base.includes('stub') || /\bstub\b|\(rest\)/i.test(match.model.description)) priority -= 50
+    if (/scan|fax/.test(base)) priority -= 150
+    out.push({ inf, match, priority })
+  }
+  return out.sort((a, b) => b.priority - a.priority)
 }

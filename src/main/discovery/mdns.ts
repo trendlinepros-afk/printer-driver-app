@@ -17,7 +17,10 @@ const SERVICE_TYPES = ['ipp', 'pdl-datastream', 'printer']
  * The `ty` and `product` TXT records give the exact make/model; `pdl`
  * lists the supported page description languages.
  */
-export function discoverMdns(durationMs = 6000): Promise<MdnsPrinter[]> {
+export function discoverMdns(
+  durationMs = 6000,
+  onResult?: (p: MdnsPrinter) => void
+): Promise<MdnsPrinter[]> {
   return new Promise((resolve) => {
     const bonjour = new Bonjour()
     const found = new Map<string, MdnsPrinter>()
@@ -34,7 +37,9 @@ export function discoverMdns(durationMs = 6000): Promise<MdnsPrinter[]> {
         logInfo(`mDNS: found "${service.name}" (${type}) at ${ip}${model ? ` — ${model}` : ''}`)
         const existing = found.get(ip)
         if (!existing || (!existing.model && model)) {
-          found.set(ip, { ip, name: service.name, model, pdl, serviceType: type })
+          const entry: MdnsPrinter = { ip, name: service.name, model, pdl, serviceType: type }
+          found.set(ip, entry)
+          onResult?.(entry)
         }
       })
     )

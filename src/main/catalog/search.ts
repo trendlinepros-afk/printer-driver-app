@@ -29,7 +29,14 @@ export async function searchForPrinter(printer: DiscoveredPrinter): Promise<Cata
   const bestHwid = printer.hardwareIds.find((h) => /^USBPRINT\\/i.test(h)) ?? printer.hardwareIds[0]
   if (bestHwid) queries.push(bestHwid)
   const modelQuery = normalizeModelQuery(printer.model)
-  if (modelQuery && modelQuery.toLowerCase() !== bestHwid?.toLowerCase()) queries.push(modelQuery)
+  // Never search the catalog for the "Unknown printer" placeholder.
+  if (
+    modelQuery &&
+    !/^unknown\b/i.test(modelQuery) &&
+    modelQuery.toLowerCase() !== bestHwid?.toLowerCase()
+  ) {
+    queries.push(modelQuery)
+  }
   return runSearch(queries, printer)
 }
 

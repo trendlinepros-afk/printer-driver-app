@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
+import { reverse } from 'dns/promises'
 import { discoverMdns } from './mdns'
-import { sweepSnmp } from './snmp'
+import { sweepSnmp, querySnmpHost, type SnmpPrinter } from './snmp'
 import { getLocalSubnetHosts, sweepTcp } from './tcpProbe'
 import { discoverUsb } from './usb'
 import { logInfo, logWarn } from '../logger'
@@ -46,6 +47,8 @@ function upsert(
     }
     if (partial.hardwareIds?.length) existing.hardwareIds = partial.hardwareIds
     if (partial.pdl && !existing.pdl) existing.pdl = partial.pdl
+    if (partial.hostname && !existing.hostname) existing.hostname = partial.hostname
+    if (partial.serial && !existing.serial) existing.serial = partial.serial
     if (partial.detail) existing.detail.push(...partial.detail)
     return existing
   }
@@ -53,6 +56,8 @@ function upsert(
     id: key,
     model: partial.model ?? 'Unknown printer',
     ip: partial.ip,
+    hostname: partial.hostname,
+    serial: partial.serial,
     sources: partial.sources ?? [],
     hardwareIds: partial.hardwareIds ?? [],
     pdl: partial.pdl,
@@ -65,8 +70,10 @@ function upsert(
 
 /**
  * Run all discovery mechanisms in parallel, streaming merged, deduplicated
- * results (by IP for network printers, by device ID for USB) to the renderer
- * as they arrive.
+ * results to the renderer host-by-host as they arrive — a printer must never
+ * sit on screen as "Unknown" while its name is already known to a slower
+ * phase. A TCP hit immediately triggers a priority SNMP query for that host
+ * instead of waiting for the sweep to reach it.
  */
 export async function runDiscovery(win: BrowserWindow): Promise<void> {
   if (discoveryRunning) {
@@ -81,21 +88,63 @@ export async function runDiscovery(win: BrowserWindow): Promise<void> {
   logInfo('Discovery started (mDNS + SNMP + TCP probe + USB in parallel)')
 
   const hosts = getLocalSubnetHosts()
+  const snmpQueried = new Set<string>()
 
-  // Each phase ALWAYS emits its done event, even on an unexpected throw —
-  // otherwise the renderer's "Scanning…" state never clears.
-  const mdnsTask = discoverMdns()
+  const applySnmp = (s: SnmpPrinter): void => {
+    // hrDeviceDescr is the real model; prtGeneralPrinterName is the
+    // USER-ASSIGNED name ("GAME ROOM") — never use it as the model.
+    const model = s.hrDeviceDescr || s.sysDescr || undefined
+    upsert(printers, s.ip, {
+      ip: s.ip,
+      model,
+      hostname: s.printerName,
+      serial: s.serial,
+      sources: ['snmp'],
+      detail: [
+        `SNMP sysDescr: ${s.sysDescr ?? '—'}`,
+        `SNMP hrDeviceDescr (model): ${s.hrDeviceDescr ?? '—'}`,
+        `SNMP printer name: ${s.printerName ?? '—'}`,
+        `SNMP serial: ${s.serial ?? '—'}`
+      ]
+    })
+    send(win, printers)
+  }
+
+  const prioritySnmp = (ip: string): void => {
+    if (snmpQueried.has(ip)) return
+    snmpQueried.add(ip)
+    void querySnmpHost(ip).then((s) => {
+      if (s) applySnmp(s)
+    })
+  }
+
+  const resolveHostname = (ip: string): void => {
+    void reverse(ip)
+      .then((names) => {
+        if (names[0]) {
+          upsert(printers, ip, { ip, hostname: names[0], detail: [`Reverse DNS: ${names[0]}`] })
+          send(win, printers)
+        }
+      })
+      .catch(() => {
+        /* no PTR record — normal */
+      })
+  }
+
+  const mdnsTask = discoverMdns(6000, (m) => {
+    upsert(printers, m.ip, {
+      ip: m.ip,
+      model: m.model,
+      hostname: m.name,
+      sources: ['mdns'],
+      pdl: m.pdl,
+      detail: [`mDNS (${m.serviceType}): ${m.name}${m.model ? ` — ty/product: ${m.model}` : ''}`]
+    })
+    send(win, printers)
+    // mDNS printers answer SNMP too — grab model/serial details right away.
+    prioritySnmp(m.ip)
+  })
     .then((list) => {
-      for (const m of list) {
-        upsert(printers, m.ip, {
-          ip: m.ip,
-          model: m.model ?? m.name,
-          sources: ['mdns'],
-          pdl: m.pdl,
-          detail: [`mDNS (${m.serviceType}): ${m.name}${m.model ? ` — ty/product: ${m.model}` : ''}`]
-        })
-      }
-      send(win, printers)
       progress(win, { phase: 'mdns', message: `mDNS done — ${list.length} found`, done: true })
     })
     .catch((err) => {
@@ -103,22 +152,8 @@ export async function runDiscovery(win: BrowserWindow): Promise<void> {
       progress(win, { phase: 'mdns', message: 'mDNS unavailable', done: true })
     })
 
-  const snmpTask = sweepSnmp(hosts)
+  const snmpTask = sweepSnmp(hosts, 48, applySnmp)
     .then((list) => {
-      for (const s of list) {
-        const model = s.printerName || s.hrDeviceDescr || s.sysDescr || 'Unknown printer'
-        upsert(printers, s.ip, {
-          ip: s.ip,
-          model,
-          sources: ['snmp'],
-          detail: [
-            `SNMP sysDescr: ${s.sysDescr ?? '—'}`,
-            `SNMP hrDeviceDescr: ${s.hrDeviceDescr ?? '—'}`,
-            `SNMP prtGeneral name: ${s.printerName ?? '—'}`
-          ]
-        })
-      }
-      send(win, printers)
       progress(win, { phase: 'snmp', message: `SNMP sweep done — ${list.length} answered`, done: true })
     })
     .catch((err) => {
@@ -126,16 +161,19 @@ export async function runDiscovery(win: BrowserWindow): Promise<void> {
       progress(win, { phase: 'snmp', message: 'SNMP unavailable', done: true })
     })
 
-  const tcpTask = sweepTcp(hosts)
+  const tcpTask = sweepTcp(hosts, 128, (t) => {
+    upsert(printers, t.ip, {
+      ip: t.ip,
+      sources: ['tcp'],
+      detail: [`TCP: open print port(s) ${t.openPorts.join(', ')}`]
+    })
+    send(win, printers)
+    // Don't wait for the SNMP sweep to reach this host — it has a print
+    // port open, so query it now to fill in model/name/serial.
+    prioritySnmp(t.ip)
+    resolveHostname(t.ip)
+  })
     .then((list) => {
-      for (const t of list) {
-        upsert(printers, t.ip, {
-          ip: t.ip,
-          sources: ['tcp'],
-          detail: [`TCP: open print port(s) ${t.openPorts.join(', ')}`]
-        })
-      }
-      send(win, printers)
       progress(win, { phase: 'tcp', message: `TCP probe done — ${list.length} hosts`, done: true })
     })
     .catch((err) => {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DiscoveredPrinter, DiscoveryProgress } from '@shared/types'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -9,6 +9,10 @@ const SOURCE_LABELS: Record<string, string> = {
   manual: 'manual'
 }
 
+/** Minimum time the "Scan in progress" screen stays up so early, partial
+ *  results (e.g. a TCP hit with no name yet) aren't shown as "Unknown". */
+const REVEAL_DELAY_MS = 5000
+
 export default function Discover({
   onSelect
 }: {
@@ -17,11 +21,16 @@ export default function Discover({
   const [printers, setPrinters] = useState<DiscoveredPrinter[]>([])
   const [progress, setProgress] = useState<DiscoveryProgress[]>([])
   const [scanning, setScanning] = useState(false)
+  const [revealed, setRevealed] = useState(false)
   const [manual, setManual] = useState('')
+  const revealTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function startScan(): void {
     setScanning(true)
+    setRevealed(false)
     setProgress([])
+    if (revealTimer.current) clearTimeout(revealTimer.current)
+    revealTimer.current = setTimeout(() => setRevealed(true), REVEAL_DELAY_MS)
     void window.driverpick.startDiscovery()
   }
 
@@ -34,11 +43,15 @@ export default function Discover({
     return () => {
       unsubResult()
       unsubProgress()
+      if (revealTimer.current) clearTimeout(revealTimer.current)
     }
   }, [])
 
   useEffect(() => {
-    if (progress.filter((p) => p.done).length >= 4) setScanning(false)
+    if (progress.filter((p) => p.done).length >= 4) {
+      setScanning(false)
+      setRevealed(true)
+    }
   }, [progress])
 
   function submitManual(): void {
@@ -83,48 +96,85 @@ export default function Discover({
         })}
       </div>
 
-      {printers.length === 0 && !scanning && (
-        <p className="mb-4 rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">
-          Nothing found. No mDNS/SNMP response is normal on some networks — use the manual
-          search below, or check that the printer is powered on and reachable.
-        </p>
-      )}
+      {!revealed ? (
+        <div className="mb-4 flex flex-col items-center gap-3 rounded border border-slate-800 bg-slate-900 p-10">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-sky-500" />
+          <p className="text-sm font-medium text-slate-200">Scan in progress…</p>
+          <p className="text-xs text-slate-500">
+            Probing mDNS, SNMP, TCP 9100/631 and USB — collecting names, models and serial
+            numbers before showing results.
+          </p>
+        </div>
+      ) : (
+        <>
+          {printers.length === 0 && !scanning && (
+            <p className="mb-4 rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">
+              Nothing found. No mDNS/SNMP response is normal on some networks — use the manual
+              search below, or check that the printer is powered on and reachable.
+            </p>
+          )}
 
-      <ul className="space-y-2">
-        {printers.map((p) => (
-          <li key={p.id} className="rounded border border-slate-800 bg-slate-900 hover:border-sky-600">
-            <button onClick={() => onSelect(p)} className="w-full p-4 text-left">
-              <div className="flex items-baseline justify-between">
-                <span className="font-medium">{p.model}</span>
-                <span className="text-xs text-slate-500">{p.ip ?? 'USB'}</span>
-              </div>
-              <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-400">
-                {p.sources.map((s) => (
-                  <span key={s} className="rounded bg-slate-800 px-1.5 py-0.5">
-                    {SOURCE_LABELS[s]}
-                  </span>
-                ))}
-                {p.pdl && <span className="text-slate-500">PDL: {p.pdl}</span>}
-                {p.hardwareIds.length > 0 && (
-                  <span className="text-emerald-500">hardware ID captured</span>
-                )}
-              </div>
-            </button>
-            {p.detail.length > 0 && (
-              <details className="border-t border-slate-800 px-4 py-2 text-xs text-slate-500">
-                <summary className="cursor-pointer select-none hover:text-slate-300">
-                  Discovery details
-                </summary>
-                <ul className="mt-1 space-y-0.5 font-mono text-[11px]">
-                  {p.detail.map((d, i) => (
-                    <li key={i} className="break-all">{d}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </li>
-        ))}
-      </ul>
+          <ul className="space-y-2">
+            {printers.map((p) => (
+              <li key={p.id}>
+                <button
+                  onClick={() => onSelect(p)}
+                  className="w-full rounded border border-slate-800 bg-slate-900 p-4 text-left hover:border-sky-600"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium">{p.model}</span>
+                    <span className="flex shrink-0 gap-1.5">
+                      {p.sources.map((s) => (
+                        <span key={s} className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-400">
+                          {SOURCE_LABELS[s]}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                  <dl className="mt-2 grid grid-cols-[110px_1fr] gap-y-1 text-xs">
+                    {p.ip && (
+                      <>
+                        <dt className="text-slate-500">IP address</dt>
+                        <dd className="text-slate-300">{p.ip}</dd>
+                      </>
+                    )}
+                    {!p.ip && (
+                      <>
+                        <dt className="text-slate-500">Connection</dt>
+                        <dd className="text-slate-300">USB</dd>
+                      </>
+                    )}
+                    {p.hostname && (
+                      <>
+                        <dt className="text-slate-500">Name</dt>
+                        <dd className="text-slate-300">{p.hostname}</dd>
+                      </>
+                    )}
+                    {p.serial && (
+                      <>
+                        <dt className="text-slate-500">Serial number</dt>
+                        <dd className="text-slate-300">{p.serial}</dd>
+                      </>
+                    )}
+                    {p.pdl && (
+                      <>
+                        <dt className="text-slate-500">Languages</dt>
+                        <dd className="text-slate-300">{p.pdl}</dd>
+                      </>
+                    )}
+                    {p.hardwareIds.length > 0 && (
+                      <>
+                        <dt className="text-slate-500">Hardware ID</dt>
+                        <dd className="break-all text-emerald-500">{p.hardwareIds[0]}</dd>
+                      </>
+                    )}
+                  </dl>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       <div className="mt-6 rounded border border-slate-800 bg-slate-900 p-4">
         <h3 className="mb-2 text-sm font-medium text-slate-300">

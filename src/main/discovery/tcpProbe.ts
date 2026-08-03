@@ -50,7 +50,11 @@ function probePort(ip: string, port: number, timeoutMs = 1000): Promise<boolean>
  * TCP-probe ports 9100 (RAW) and 631 (IPP) across the given hosts to find
  * print hosts that don't answer SNMP or mDNS.
  */
-export async function sweepTcp(hosts: string[], concurrency = 128): Promise<TcpProbeResult[]> {
+export async function sweepTcp(
+  hosts: string[],
+  concurrency = 128,
+  onResult?: (r: TcpProbeResult) => void
+): Promise<TcpProbeResult[]> {
   const results: TcpProbeResult[] = []
   let index = 0
   async function worker(): Promise<void> {
@@ -62,7 +66,9 @@ export async function sweepTcp(hosts: string[], concurrency = 128): Promise<TcpP
       }
       if (open.length) {
         logInfo(`TCP: ${ip} has open print port(s): ${open.join(', ')}`)
-        results.push({ ip, openPorts: open })
+        const entry: TcpProbeResult = { ip, openPorts: open }
+        results.push(entry)
+        onResult?.(entry)
       }
     }
   }

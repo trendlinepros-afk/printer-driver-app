@@ -4,14 +4,17 @@ import { logInfo } from '../logger'
 export interface SnmpPrinter {
   ip: string
   sysDescr?: string
+  /** The real model string, e.g. "HP LaserJet MFP M232-M237" */
   hrDeviceDescr?: string
-  /** prtGeneralPrinterName — usually the cleanest model string */
+  /** prtGeneralPrinterName — the USER-ASSIGNED name ("GAME ROOM"), not the model */
   printerName?: string
+  serial?: string
 }
 
 const OID_SYS_DESCR = '1.3.6.1.2.1.1.1.0'
 const OID_HR_DEVICE_DESCR = '1.3.6.1.2.1.25.3.2.1.3.1'
 const OID_PRT_NAME = '1.3.6.1.2.1.43.5.1.1.16.1'
+const OID_PRT_SERIAL = '1.3.6.1.2.1.43.5.1.1.17.1'
 
 /**
  * Query a single host with SNMP v2c (falling back to v1), community "public".
@@ -24,7 +27,7 @@ export function querySnmpHost(ip: string, timeoutMs = 1200): Promise<SnmpPrinter
       timeout: timeoutMs,
       retries: 0
     })
-    const oids = [OID_SYS_DESCR, OID_HR_DEVICE_DESCR, OID_PRT_NAME]
+    const oids = [OID_SYS_DESCR, OID_HR_DEVICE_DESCR, OID_PRT_NAME, OID_PRT_SERIAL]
     let settled = false
     const finish = (result: SnmpPrinter | null): void => {
       if (settled) return
@@ -51,6 +54,7 @@ export function querySnmpHost(ip: string, timeoutMs = 1200): Promise<SnmpPrinter
         if (vb.oid === OID_SYS_DESCR) out.sysDescr = value
         else if (vb.oid === OID_HR_DEVICE_DESCR) out.hrDeviceDescr = value
         else if (vb.oid === OID_PRT_NAME) out.printerName = value
+        else if (vb.oid === OID_PRT_SERIAL) out.serial = value
       }
       if (!out.sysDescr && !out.hrDeviceDescr && !out.printerName) return finish(null)
       finish(out)
@@ -86,11 +90,15 @@ function retryV1(ip: string, timeoutMs: number): Promise<SnmpPrinter | null> {
 }
 
 /**
- * Sweep a list of hosts with bounded concurrency. Only hosts that answered
- * the TCP probe (or are otherwise interesting) should be passed in — but a
- * full /24 sweep is also fine given the concurrency cap.
+ * Sweep a list of hosts with bounded concurrency, invoking onResult the
+ * moment each host answers so the UI can update live instead of waiting
+ * for the whole /24 to finish.
  */
-export async function sweepSnmp(hosts: string[], concurrency = 48): Promise<SnmpPrinter[]> {
+export async function sweepSnmp(
+  hosts: string[],
+  concurrency = 48,
+  onResult?: (r: SnmpPrinter) => void
+): Promise<SnmpPrinter[]> {
   const results: SnmpPrinter[] = []
   let index = 0
   async function worker(): Promise<void> {
@@ -98,8 +106,9 @@ export async function sweepSnmp(hosts: string[], concurrency = 48): Promise<Snmp
       const ip = hosts[index++]
       const r = await querySnmpHost(ip)
       if (r) {
-        logInfo(`SNMP: ${ip} answered — ${r.printerName || r.hrDeviceDescr || r.sysDescr}`)
+        logInfo(`SNMP: ${ip} answered — ${r.hrDeviceDescr || r.sysDescr || r.printerName}`)
         results.push(r)
+        onResult?.(r)
       }
     }
   }

@@ -8,6 +8,10 @@ export interface DiscoveredPrinter {
   model: string
   ip?: string
   mac?: string
+  /** Friendly/user-assigned name (mDNS service name or SNMP prtGeneralPrinterName) */
+  hostname?: string
+  /** SNMP prtGeneralSerialNumber when the device reports one */
+  serial?: string
   sources: DiscoverySource[]
   /** Full PnP HardwareIDs array (USB devices) — the most important data we collect */
   hardwareIds: string[]

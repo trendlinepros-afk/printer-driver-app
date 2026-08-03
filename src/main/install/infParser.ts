@@ -5,6 +5,7 @@
  * hardware ID (or model string, for network/manual printers) actually
  * appears before anything is staged.
  */
+import { tokenInRange } from '../matching'
 
 export interface InfModelEntry {
   /** Display name, e.g. "HP LaserJet Pro M404-M405 PCL-6" */
@@ -189,8 +190,11 @@ export function matchDeviceToInf(
       return { matchedBy: 'model-string', matchedValue: model.description, model }
     }
     const descTokens = desc.split(' ')
+    // Prefix match ("M404dn" vs "M404") or range match ("M234sdw" vs the
+    // raw description's "M232-M237").
     const tokenMatches = (t: string): boolean =>
-      descTokens.some((d) => d.length >= 3 && (d.startsWith(t) || t.startsWith(d)))
+      descTokens.some((d) => d.length >= 3 && (d.startsWith(t) || t.startsWith(d))) ||
+      tokenInRange(t, model.description)
     if (deviceTokens.length && deviceTokens.every(tokenMatches)) {
       return { matchedBy: 'model-string', matchedValue: model.description, model }
     }

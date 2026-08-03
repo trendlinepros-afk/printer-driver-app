@@ -14,6 +14,7 @@
  * Hard filters: architecture must match the host (x64/ARM64) and the OS
  * applicability must include the running Windows version.
  */
+import { tokenInRange } from '../matching'
 import type { CatalogCandidate, RankedCandidate } from '@shared/types'
 
 export interface RankingContext {
@@ -123,7 +124,8 @@ export function scoreCandidate(
     const tl = t.toLowerCase()
     return (
       titleLower.includes(tl) ||
-      titleTokens.some((tt) => /\d/.test(tt) && (tt.startsWith(tl) || tl.startsWith(tt)))
+      titleTokens.some((tt) => /\d/.test(tt) && (tt.startsWith(tl) || tl.startsWith(tt))) ||
+      tokenInRange(t, candidate.title)
     )
   })
   if (matchedToken) {

@@ -51,6 +51,28 @@ export async function searchManual(query: string): Promise<CatalogSearchResult> 
   return runSearch([normalizeModelQuery(query)], printer)
 }
 
+/**
+ * Progressively broader queries for when the exact model finds nothing.
+ * Catalog entries are usually indexed under series-range names
+ * ("M232-M237"), so "HP LaserJet MFP M234sdw" → "HP LaserJet MFP M234" →
+ * "HP LaserJet MFP"; range-aware ranking then surfaces the right package.
+ */
+export function buildFallbackQueries(model: string): string[] {
+  const norm = normalizeModelQuery(model)
+  const words = norm.split(' ').filter(Boolean)
+  const idx = words.findIndex((w) => /\d/.test(w))
+  if (idx < 0) return []
+  const brand = words.slice(0, idx).join(' ')
+  const token = words[idx]
+  const stripped = /^([A-Za-z]*\d+)/.exec(token)?.[1]
+  const out: string[] = []
+  if (stripped && stripped.toLowerCase() !== token.toLowerCase()) {
+    out.push(brand ? `${brand} ${stripped}` : stripped)
+  }
+  if (brand.split(' ').length >= 2) out.push(brand)
+  return out
+}
+
 async function runSearch(
   queries: string[],
   printer: DiscoveredPrinter
@@ -60,7 +82,7 @@ async function runSearch(
   const tried: string[] = []
   let lastError: string | undefined
 
-  for (const q of queries.filter(Boolean)) {
+  const searchOne = async (q: string): Promise<void> => {
     tried.push(q)
     try {
       logInfo(`Catalog search: "${q}"`)
@@ -70,6 +92,20 @@ async function runSearch(
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err)
       logWarn(`Catalog search failed for "${q}": ${lastError}`)
+    }
+  }
+
+  for (const q of queries.filter(Boolean)) {
+    await searchOne(q)
+  }
+
+  // Zero results → walk progressively broader queries until one hits.
+  if (merged.length === 0) {
+    for (const fallback of buildFallbackQueries(printer.model)) {
+      if (tried.some((t) => t.toLowerCase() === fallback.toLowerCase())) continue
+      logInfo(`No results yet — broadening the search to "${fallback}"`)
+      await searchOne(fallback)
+      if (merged.length > 0) break
     }
   }
 

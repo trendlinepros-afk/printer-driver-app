@@ -1,0 +1,26 @@
+appId: com.driverpick.app
+productName: DriverPick
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asarUnpack:
+  - node_modules/net-snmp/**
+  - node_modules/bonjour-service/**
+win:
+  target:
+    - nsis
+    - portable
+  # Driver installation (pnputil, Add-PrinterDriver) requires elevation, so the
+  # whole app runs elevated. Both targets prompt UAC on launch.
+  requestedExecutionLevel: requireAdministrator
+nsis:
+  artifactName: DriverPick-Setup.${ext}
+  oneClick: true
+  perMachine: true
+portable:
+  artifactName: DriverPick-Portable.${ext}
+  requestExecutionLevel: admin
+npmRebuild: false
